@@ -1,7 +1,6 @@
 #Шаг 1 - импорт необходимых модулей
 import sqlite3
 import threading
-import  requests
 from queue import Queue
 
 import telebot
@@ -12,7 +11,7 @@ import datetime
 about = ['MBTI - это психологическая система, позволяющая выделить яркие черты человека на основе определенных типов личности.',
          'Классификация людей по группам (16 типов личности) происходит в соответствии с уникальными когнитивными функциями (иначе способностью воспринимать и обрабатывать  информацию, принимать решения и организовывать личный успех). В каждом из типов Кэтрин и Изабелль Майерс-Бриггс (основательницы типологии) выделили 4 основные группы функций:',
          f'1. I/E (экстраверсия и интроверсия) - отвечает за восполнение человеком утраченной энергии. \n 2. N/S (сенсорика и интуиция) - отвечает за тип восприятия информации из окружающей среды. \n 3. F/T - отвечает за способ принятия решений. \n 4. P/J - отвечает за предпочитаемый образ жизни человека. \n Более подробная и качественная расшифровка с рекомендациями в профессиональной сфере будет представлена в результате прохождения теста.',
-         'Важно помнить, что деление людей на четкие типы - не более чем условность, однако принадлежность человека к определенной группе поможет подтолкнуть на мысль о сильных и слабых сторонах личности.']
+         'Важно помнить, что деление людей на четкие типы - не более чем условность, однако принадлежность человека к определенной группе поможет подтолкнуть на мысль о сильных и слабых сторонах личности.', 'Если у вас будут возникать сомнения при принятии решения, то выбирайте вариант, кажущийся наиболее предпочтительным и комфортным для себя в большинстве жизненных ситуаций.']
 qs = {
     'intro_extra': [f"""1. В социальном взаимодействии вы склонны:  \n\nI. Больше слушать  \n\nII. Больше разговаривать (рассказывать о чем-либо)?""", f"""2. В повседневности вы: \n\nI. Сначала предаетесь рефлексии и анализу, а потом действуете  \n\nII. Сначала сразу реагируете на события, а потом задумываетесь над сделанным""", f"""3. Обычно вы: \n\nI. Первым не проявляете инициативы при знакомстве с людьми \n\nII. Стараетесь (как правило, сами того не замечая) ознакомиться с собеседником первыми""", f"""4. Ваш предпочтительный тип отдыха после утомительного труда:\n
 I.  Пребывание наедине с собой, занимаясь любимым делом
@@ -60,6 +59,7 @@ I. Оцениваю свои возможности в соответствии 
 \nII. Заранее отслеживаете, сколько примерно времени вам потребуется на выполнение того или иного задания; можете быть уверены в знаниях (тк готовились к работе дома) или расписываете все на черновике, после проверки переписывая на чистовик. Не любите спешку, перепроверяете каждый ответ."""]
 }
 user_state = {}
+
 query_queue = Queue()
 result_queue = Queue()
 
@@ -87,56 +87,13 @@ def thread_func(query_queue, result_queue, table_name, column_name):
     return result
 
 
-#Шаг 4.1 - создание бота
+#Шаг 4 - создание бота
 bot = telebot.TeleBot('7624758679:AAFHmqzPyIUooaZ8Z9Zyylmjhg1PKzr8nCM', parse_mode='HTML')
-
-#Шаг 4.2 - создание бота, отсылающего сообщение с оценкой от пользователя в личные сообщения
-rate_bot = telebot.TeleBot('8184072884:AAGAuyvBcW_nGPrWJw1-f8OMlTVBUsL8w_o')
-
-def chat_id():
-    url =  f'https://api.telegram.org/bot{rate_bot}/getUpdates'
-    response = requests.get(url)
-    data = response.json()
-
-    if data['ok']:
-        for update in data['result']:
-            if 'message' in update:
-                chat_id = update['message']['chat']['id']
-                return chat_id
-    else:
-     return "the update hasn't been received"
-
-feedback_chat_id = chat_id()
-print(f'Your chat_id is: {feedback_chat_id}')
-
-
-def send_rate_feedback(user_name, rate):
-    url = f'https://api.telegram.org/bot{rate_bot}/sendMessage'
-    rate_to_send = ''
-
-    if rate == 'one':
-        rate_to_send = f'Пользователь {user_name} оценил Вашу работу 1 звездой.'
-    elif rate == 'two':
-        rate_to_send = f'Пользователь {user_name} оценил Вашу работу 2 звездами.'
-    elif rate == 'three':
-        rate_to_send = f'Пользователь {user_name} оценил Вашу работу 3 звездами.'
-    elif rate == 'four':
-        rate_to_send = f'Пользователь {user_name} оценил Вашу работу 4 звездами.'
-    elif rate == 'five':
-        rate_to_send = f'Пользователь {user_name} оценил Вашу работу 5 звездами.'
-
-    payload = {
-        'chat_id': feedback_chat_id,
-        'text': rate_to_send
-    }
-
-    response = requests.post(url, data=payload)
-    return response.json()
 
 #Шаг 5 - основная 'магия' или реализация алгоритма диалога
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     date = datetime.datetime.now()
     hour = date.hour
     time = ''
@@ -150,7 +107,7 @@ def send_welcome(message):
         time = '🌃 Добрый  вечер'
 
     if user_id not in user_state:
-        user_state[user_id] = {'stage': 'intro_extra', 'index': 0, 'intro': 0, 'extra': 0, 'sense': 0, 'intuit': 0, 'think': 0, 'feel': 0, 'perceive': 0, 'judge': 0}
+        user_state[user_id] = {'stage': 'intro_extra', 'index': 0, 'intro': 0, 'extra': 0, 'sense': 0, 'intuit': 0, 'think': 0, 'feel': 0, 'perceive': 0, 'judge': 0, 'feedback': ''}
     user_state[user_id]['first_mssg'] = message.message_id
 
     welcome_message = bot.send_message(message.chat.id, f'<b>{time}, <i>{message.from_user.first_name}</i></b>.\n\nДанный бот является тестом, позволяющим определить Ваш тип личности по системе типологии MBTI. Но перед началом необходимо уточнить: хотите ознакомиться с основными концепциями системы МБТИ?', parse_mode='html' , reply_markup=get_kb(index=None,name='answ', letter=user_id))
@@ -223,7 +180,7 @@ def get_kb(index, name, letter):
 
 @bot.message_handler(content_types=['text'])
 def process_stage(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     stage = user_state[user_id]['stage']
     if stage == 'intro_extra':
         process_test_iande(message)
@@ -237,13 +194,15 @@ def process_stage(message):
         process_results(message)
     elif stage == 'rate':
         send_rate_msg(message)
+    elif stage == 'awaiting_feedback':
+        handle_feedback(message)
     elif stage == '':
         img = open('assets/meme.jpg', 'rb')
         bot.send_photo(message.chat.id, img, f'{message.text}?')
         img.close()
 
 def process_test_iande(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     i_e = qs['intro_extra']
     curr_index = user_state[user_id]['index']
 
@@ -275,7 +234,7 @@ def process_test_iande(message):
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_test_sandi(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     s_i = qs['sense_intuit']
     curr_index = user_state[user_id]['index']
 
@@ -304,7 +263,7 @@ def process_test_sandi(message):
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_test_fandt(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     f_t = qs['feel_think']
     curr_index = user_state[user_id]['index']
 
@@ -334,7 +293,7 @@ def process_test_fandt(message):
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_test_pandj(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     p_j = qs['perc_judge']
     curr_index = user_state[user_id]['index']
 
@@ -368,7 +327,7 @@ def process_test_pandj(message):
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_results(message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     type = []
 
     try:
@@ -433,7 +392,7 @@ def process_results(message):
     send_markup_message(message, chat_id, letters)
 
 def send_markup_message(message, chat_id, letters):
-    user_id = message.from_user.id
+    user_id = message.chat.id
     bot.send_message(chat_id=chat_id,  text=f'Ваш тип личности - {letters}! \n\n {description[0]}', parse_mode='HTML', reply_markup=get_kb(index=0, name='final', letter=letters))
 
     user_state[user_id]['stage'] = 'rate'
@@ -441,13 +400,28 @@ def send_markup_message(message, chat_id, letters):
 
 def send_rate_msg(message):
     bot.send_message(chat_id=message.chat.id, text=f'Благодарю за прохождение теста, {message.from_user.first_name}! Пожалуйста, оцените работу бота и качество подачи материала.', reply_markup=get_kb(index=None, name='rate', letter=None))
-    user_state[message.from_user.id]['stage'] = ''
 
+def send_feedback(message):
+    user_id = message.chat.id
+    bot.send_message(chat_id=message.chat.id, text='И последнее: не могли бы вы оставить краткий комментарий с вашим мнением относительно работы бота? Любая точка зрения важна при сборе статистики.')
+    user_state[user_id]['stage'] = 'awaiting_feedback'
+
+@bot.message_handler(func=lambda message: message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'awaiting_feedback')
+def handle_feedback(message):
+    user_id = message.chat.id
+    feedback_text = message.text
+
+    if feedback_text:
+        user_state[user_id]['feedback'] = feedback_text
+        bot.reply_to(message, text='Спасибо! Ваш отзыв сохранен.')
+        user_state[user_id]['stage'] = ''
+    else:
+        bot.send_message(chat_id=message.chat.id, text='Отзыв не может быть пустым.')
 
 #Шаг 6 - обработка ключевых запросов от кнопок, включенных в сообщения бота
 @bot.callback_query_handler(func=lambda call: True)
 def main(call):
-    user_id = call.from_user.id
+    user_id = call.message.chat.id
 
     if 'answ' in call.data:
         if 'yes' in call.data:
@@ -491,13 +465,15 @@ def main(call):
         end = call.data.split('_')[1]
         if end == 'one' or end == 'two':
             bot.answer_callback_query(callback_query_id=call.id, text='Спасибо за оценку! В ближайшем будущем бот будет дополняться, так что неточности в работе будут сведены к 0. Жду вас снова!^^')
-            send_rate_feedback(call.message.from_user.first_name, end)
+            send_feedback(call.message)
+
         elif end == 'three' or end == 'four':
             bot.answer_callback_query(callback_query_id=call.id, text='Благодарю за оценку. В ближайшем будущем бот будет дополняться, так что я постараюсь пофиксить прошлые ошибки. Жду вас снова!^^')
-            send_rate_feedback(call.message.from_user.first_name, end)
+            send_feedback(call.message)
+
         elif end == 'five':
             bot.answer_callback_query(callback_query_id=call.id, text='Очень рада, что вам понравилось! В ближайшем будущем бот будет дополняться, добавится новая информация по психологии личности. Жду вас снова!^^ ')
-            send_rate_feedback(call.message.from_user.first_name, end)
+            send_feedback(call.message)
 
 #Шаг 7 - запуск бота
 if __name__ == '__main__':
