@@ -65,7 +65,7 @@ result_queue = Queue()
 
 #Шаг 3 - работа с базой данных
 def execute_query(query_queue, result_queue):
-    con = sqlite3.connect('G:\\настя\\project\\MBTItestBot\\sixteen_pers.db')
+    con = sqlite3.connect('sixteen_pers.db')
     cur = con.cursor()
     while True:
         query = query_queue.get()
@@ -196,6 +196,8 @@ def process_stage(message):
         send_rate_msg(message)
     elif stage == 'awaiting_feedback':
         handle_feedback(message)
+    elif stage == 'final_feedback':
+        final_feedback(message)
     elif stage == '':
         img = open('assets/meme.jpg', 'rb')
         bot.send_photo(message.chat.id, img, f'{message.text}?')
@@ -406,6 +408,7 @@ def send_feedback(message):
     bot.send_message(chat_id=message.chat.id, text='И последнее: не могли бы вы оставить краткий комментарий с вашим мнением относительно работы бота? Любая точка зрения важна при сборе статистики.')
     user_state[user_id]['stage'] = 'awaiting_feedback'
 
+#Шаг 6 - обработка отзывов от пользователя
 @bot.message_handler(func=lambda message: message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'awaiting_feedback')
 def handle_feedback(message):
     user_id = message.chat.id
@@ -413,20 +416,26 @@ def handle_feedback(message):
 
     if feedback_text:
         user_state[user_id]['feedback'] = feedback_text
-        answer = bot.send_message(chat_id=message.chat.id, text='Вы уверены, что хотите отправить отзыв? Напишите "Да" или "Нет".')
-        if answer.text == 'Да':
-            user_state[user_id]['feedback'] = feedback_text
-            bot.reply_to(message, 'Спасибо! Ваше мнение учтено')
-            user_state[user_id]['stage'] == ''
-        elif answer.text == 'Нет':
-            bot.send_message(chat_id=message.chat.id, text='Пожалуйста, отправьте новый отзыв')
-        else:
-            bot.reply_to(message, 'Это похоже на шутку?')
+        user_state[user_id]['stage'] = 'final_feedback'
+        bot.send_message(chat_id=message.chat.id, text='Вы уверены, что хотите оставить отзыв? Пожалуйста, напишите "да" или "нет"')
     else:
         bot.send_message(chat_id=message.chat.id, text='Отзыв не может быть пустым.')
 
-@bot.message_handler(func=lambda message:message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'results')
-#Шаг 6 - обработка ключевых запросов от кнопок, включенных в сообщения бота
+@bot.message_handler(func=lambda message: message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'final_feedback')
+def final_feedback(message):
+    user_id = message.chat.id
+    final_state = message.text
+
+    if final_state == 'да':
+        bot.send_message(chat_id=message.chat.id, text='Ваш отзыв успешно сохранен! Спасибо за мнение.')
+        user_state[user_id]['stage'] = ''
+    elif final_state == 'нет':
+        user_state[user_id].pop('feedback', None)
+        user_state[user_id]['stage'] = 'awaiting_feedback'
+    else:
+        bot.send_message(chat_id=message.chat.id, text='Пожалуйста, отправьте "да" или "нет".')
+
+#Шаг 7 - обработка ключевых запросов от кнопок, включенных в сообщения бота
 @bot.callback_query_handler(func=lambda call: True)
 def main(call):
     user_id = call.message.chat.id
@@ -483,6 +492,6 @@ def main(call):
             bot.answer_callback_query(callback_query_id=call.id, text='Очень рада, что вам понравилось! В ближайшем будущем бот будет дополняться, добавится новая информация по психологии личности. Жду вас снова!^^ ')
             send_feedback(call.message)
 
-#Шаг 7 - запуск бота
+#Шаг 8 - запуск бота
 if __name__ == '__main__':
     bot.polling(none_stop=True)
