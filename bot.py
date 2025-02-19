@@ -413,11 +413,19 @@ def handle_feedback(message):
 
     if feedback_text:
         user_state[user_id]['feedback'] = feedback_text
-        bot.reply_to(message, text='Спасибо! Ваш отзыв сохранен.')
-        user_state[user_id]['stage'] = ''
+        answer = bot.send_message(chat_id=message.chat.id, text='Вы уверены, что хотите отправить отзыв? Напишите "Да" или "Нет".')
+        if answer.text == 'Да':
+            user_state[user_id]['feedback'] = feedback_text
+            bot.reply_to(message, 'Спасибо! Ваше мнение учтено')
+            user_state[user_id]['stage'] == ''
+        elif answer.text == 'Нет':
+            bot.send_message(chat_id=message.chat.id, text='Пожалуйста, отправьте новый отзыв')
+        else:
+            bot.reply_to(message, 'Это похоже на шутку?')
     else:
         bot.send_message(chat_id=message.chat.id, text='Отзыв не может быть пустым.')
 
+@bot.message_handler(func=lambda message:message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'results')
 #Шаг 6 - обработка ключевых запросов от кнопок, включенных в сообщения бота
 @bot.callback_query_handler(func=lambda call: True)
 def main(call):
