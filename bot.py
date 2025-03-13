@@ -1,5 +1,8 @@
 #Шаг 1 - импорт необходимых модулей
 import sqlite3
+import json
+import os
+import signal
 import threading
 from queue import Queue
 
@@ -58,12 +61,14 @@ I. Беру самое необходимое (по собственному у�
 I. Оцениваю свои возможности в соответствии с отведенным временем, обычно пишу сразу в чистовике и исправляю ошибки по мере продвижения; часто могу не подготавливаться заранее, но пишу работы на удовлетворительный результат.
 \nII. Заранее отслеживаете, сколько примерно времени вам потребуется на выполнение того или иного задания; можете быть уверены в знаниях (тк готовились к работе дома) или расписываете все на черновике, после проверки переписывая на чистовик. Не любите спешку, перепроверяете каждый ответ."""]
 }
-user_state = {}
 
+user_state = {}
+USER_FILE = 'user_state.json'
+
+#Шаг 3 - работа с базой данных
 query_queue = Queue()
 result_queue = Queue()
 
-#Шаг 3 - работа с базой данных
 def execute_query(query_queue, result_queue):
     con = sqlite3.connect('sixteen_pers.db')
     cur = con.cursor()
@@ -78,7 +83,6 @@ def execute_query(query_queue, result_queue):
         query_queue.task_done()
 
     con.close()
-
 def thread_func(query_queue, result_queue, table_name, column_name):
     query = f'SELECT {column_name} FROM {table_name}'
     query_queue.put(query)
@@ -87,13 +91,45 @@ def thread_func(query_queue, result_queue, table_name, column_name):
     return result
 
 
+#Возвращаю базовый словарь
+def create_user_state():
+   return  {'user_id':'', 'stage': 'intro_extra', 'index': 0, 'intro': 0, 'extra': 0, 'sense': 0, 'intuit': 0, 'think': 0, 'feel': 0, 'perceive': 0, 'judge': 0, 'feedback': ''}
+
+#Загрузка состояния словаря
+def load_user_state():
+  global user_state
+  if os.path.exists(USER_FILE):
+      try:
+       with open(USER_FILE, 'r') as file:
+          file_content = file.read()
+          if file_content:
+              user_state = json.loads(file_content)
+              print('User state loaded from file.')
+          else:
+              print('User state is empty, start with empty state')
+              user_state = {}
+      except json.JSONDecodeError as e:
+          print(f'Error decoding json from file: {e}, start with empty state')
+          user_state = {}
+
+  else:
+      print('No user state file found, starting with empty state.')
+      user_state = {}
+
+#Сохранение user_state в файл
+def save_user_state():
+    with open(USER_FILE, 'w', encoding='utf-8') as f:
+        json.dump(user_state, f, ensure_ascii=False)
+    print('User state saved to file.')
+
 #Шаг 4 - создание бота
 bot = telebot.TeleBot('7624758679:AAFHmqzPyIUooaZ8Z9Zyylmjhg1PKzr8nCM', parse_mode='HTML')
 
 #Шаг 5 - основная 'магия' или реализация алгоритма диалога
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.chat.id
+    global user_state
+
     date = datetime.datetime.now()
     hour = date.hour
     time = ''
@@ -106,12 +142,13 @@ def send_welcome(message):
     elif 17 <= hour < 24:
         time = '🌃 Добрый  вечер'
 
-    if user_id not in user_state:
-        user_state[user_id] = {'stage': 'intro_extra', 'index': 0, 'intro': 0, 'extra': 0, 'sense': 0, 'intuit': 0, 'think': 0, 'feel': 0, 'perceive': 0, 'judge': 0, 'feedback': ''}
-    user_state[user_id]['first_mssg'] = message.message_id
+    user_state = create_user_state()
+    user_state['first_mssg'] = message.message_id
 
-    welcome_message = bot.send_message(message.chat.id, f'<b>{time}, <i>{message.from_user.first_name}</i></b>.\n\nДанный бот является тестом, позволяющим определить Ваш тип личности по системе типологии MBTI. Но перед началом необходимо уточнить: хотите ознакомиться с основными концепциями системы МБТИ?', parse_mode='html' , reply_markup=get_kb(index=None,name='answ', letter=user_id))
-    user_state[user_id]['welcome_mssg'] = welcome_message.message_id
+    welcome_message = bot.send_message(message.chat.id, f'<b>{time}, <i>{message.from_user.first_name}</i></b>.\n\nДанный бот является тестом, позволяющим определить Ваш тип личности по системе типологии MBTI. Но перед началом необходимо уточнить: хотите ознакомиться с основными концепциями системы МБТИ?', parse_mode='html' , reply_markup=get_kb(index=None,name='answ', letter=''))
+    user_state['welcome_mssg'] = welcome_message.message_id
+    save_user_state()
+
 
 def get_kb(index, name, letter):
     kb = InlineKeyboardMarkup(row_width=2)
@@ -180,8 +217,8 @@ def get_kb(index, name, letter):
 
 @bot.message_handler(content_types=['text'])
 def process_stage(message):
-    user_id = message.chat.id
-    stage = user_state[user_id]['stage']
+    stage = user_state.get('stage')
+
     if stage == 'intro_extra':
         process_test_iande(message)
     elif stage == 'sense_intuit':
@@ -203,173 +240,190 @@ def process_stage(message):
         bot.send_photo(message.chat.id, img, f'{message.text}?')
         img.close()
 
+
 def process_test_iande(message):
-    user_id = message.chat.id
-    i_e = qs['intro_extra']
-    curr_index = user_state[user_id]['index']
+    try:
+     i_e = qs['intro_extra']
+     curr_index = user_state['index']
 
-    if message.text == 'Первое':
-         user_state[user_id]['intro'] += 1
+     if message.text == 'Первое':
+         user_state['intro'] += 1
          curr_index += 1
-         user_state[user_id]['index'] = curr_index
-
+         user_state['index'] = curr_index
+         save_user_state()
          if curr_index < len(i_e):
              bot.send_message(chat_id=message.chat.id, text=f'{i_e[curr_index]}', reply_markup=get_kb(index = None, name='test',  letter=None))
          else:
-             user_state[user_id]['stage'] = 'sense_intuit'
-             user_state[user_id]['index'] = 0
+             user_state['stage'] = 'sense_intuit'
+             user_state['index'] = 0
+             save_user_state()
              process_test_sandi(message)
 
-    elif message.text == 'Второе':
-        user_state[user_id]['extra'] += 1
+     elif message.text == 'Второе':
+        user_state['extra'] += 1
         curr_index += 1
-        user_state[user_id]['index'] = curr_index
-
+        user_state['index'] = curr_index
+        save_user_state()
         if curr_index < len(i_e):
             bot.send_message(chat_id=message.chat.id, text=f'{i_e[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
         else:
-            user_state[user_id]['stage'] = 'sense_intuit'
-            user_state[user_id]['index'] = 0
+            user_state['stage'] = 'sense_intuit'
+            user_state['index'] = 0
+            save_user_state()
             process_test_sandi(message)
 
-    else:
+     else:
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
+    except KeyError as e:
+        load_user_state()
+
 def process_test_sandi(message):
-    user_id = message.chat.id
     s_i = qs['sense_intuit']
-    curr_index = user_state[user_id]['index']
+    curr_index = user_state['index']
 
     if message.text == 'Первое':
-        user_state[user_id]['sense'] += 1
+        user_state['sense'] += 1
         if curr_index < len(s_i):
             bot.send_message(chat_id=message.chat.id, text=f'{s_i[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
             curr_index += 1
-            user_state[user_id]['index'] = curr_index
+            user_state['index'] = curr_index
+            save_user_state()
         else:
-            user_state[user_id]['stage'] = 'feeling_thinking'
-            user_state[user_id]['index'] = 0
+            user_state['stage'] = 'feeling_thinking'
+            user_state['index'] = 0
+            save_user_state()
             process_test_fandt(message)
 
     elif message.text == 'Второе':
-        user_state[user_id]['intuit'] += 1
+        user_state['intuit'] += 1
         if curr_index < len(s_i):
             bot.send_message(chat_id=message.chat.id, text=f'{s_i[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
             curr_index += 1
-            user_state[user_id]['index'] = curr_index
+            user_state['index'] = curr_index
+            save_user_state()
         else:
-            user_state[user_id]['stage'] = 'feeling_thinking'
-            user_state[user_id]['index'] = 0
+            user_state['stage'] = 'feeling_thinking'
+            user_state['index'] = 0
+            save_user_state()
             process_test_fandt(message)
     else:
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_test_fandt(message):
-    user_id = message.chat.id
     f_t = qs['feel_think']
-    curr_index = user_state[user_id]['index']
+    curr_index = user_state['index']
 
     if message.text == 'Первое':
-        user_state[user_id]['feel'] +=1
+        user_state['feel'] +=1
         if curr_index < len(f_t):
             bot.send_message(chat_id=message.chat.id, text=f'{f_t[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
             curr_index += 1
-            user_state[user_id]['index'] = curr_index
+            user_state['index'] = curr_index
+            save_user_state()
         else:
-            user_state[user_id]['stage'] = 'perceive_judge'
-            user_state[user_id]['index'] = 0
+            user_state['stage'] = 'perceive_judge'
+            user_state['index'] = 0
+            save_user_state()
             process_test_pandj(message)
 
     elif message.text == 'Второе':
-        user_state[user_id]['think'] +=1
+        user_state['think'] +=1
         if curr_index < len(f_t):
             bot.send_message(chat_id=message.chat.id, text=f'{f_t[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
             curr_index += 1
-            user_state[user_id]['index'] = curr_index
+            user_state['index'] = curr_index
+            save_user_state()
         else:
-            user_state[user_id]['stage'] = 'perceive_judge'
-            user_state[user_id]['index'] = 0
+            user_state['stage'] = 'perceive_judge'
+            user_state['index'] = 0
+            save_user_state()
             process_test_pandj(message)
 
     else:
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_test_pandj(message):
-    user_id = message.chat.id
     p_j = qs['perc_judge']
-    curr_index = user_state[user_id]['index']
+    curr_index = user_state['index']
 
     if message.text == 'Первое':
-      user_state[user_id]['perceive'] += 1
+      user_state['perceive'] += 1
       if curr_index < len(p_j) - 1:
          bot.send_message(chat_id=message.chat.id, text=f'{p_j[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
          curr_index += 1
-         user_state[user_id]['index'] = curr_index
+         user_state['index'] = curr_index
+         save_user_state()
       elif curr_index == len(p_j) - 1:
           last_mssg = bot.send_message(chat_id=message.chat.id, text=f'{p_j[-1]}', reply_markup=get_kb(index=None, name='results', letter=None))
-          user_state[user_id]['last_mssg'] = last_mssg.message_id
-          user_state[user_id]['stage'] = 'results'
-          user_state[user_id]['index'] = 0
+          user_state['last_mssg'] = last_mssg.message_id
+          user_state['stage'] = 'results'
+          user_state['index'] = 0
+          save_user_state()
+          try:
+              bot.delete_message(chat_id=message.chat.id, message_id=user_state['last_mssg'])
+          except telebot.apihelper.ApiTelegramException as e:
+              print(f"Error deleting last message: {e}")
           process_results(message)
 
     elif message.text == 'Второе':
-      user_state[user_id]['judge'] += 1
+      user_state['judge'] += 1
       if curr_index < len(p_j) - 1:
          bot.send_message(chat_id=message.chat.id, text=f'{p_j[curr_index]}', reply_markup=get_kb(index=None, name='test',  letter=None))
          curr_index += 1
-         user_state[user_id]['index'] = curr_index
+         user_state['index'] = curr_index
+         save_user_state()
       elif curr_index == len(p_j) - 1:
           last_mssg = bot.send_message(chat_id=message.chat.id, text=f'{p_j[-1]}', reply_markup=get_kb(index=None, name='results', letter=None))
-          user_state[user_id]['last_mssg'] = last_mssg.message_id
-          user_state[user_id]['stage'] = 'results'
-          user_state[user_id]['index'] = 0
+          user_state['last_mssg'] = last_mssg.message_id
+          user_state['stage'] = 'results'
+          user_state['index'] = 0
+          save_user_state()
+          try:
+              bot.delete_message(chat_id=message.chat.id, message_id=user_state['last_mssg'])
+          except telebot.apihelper.ApiTelegramException as e:
+              print(f"Error deleting last message: {e}")
           process_results(message)
 
     else:
         bot.send_message(chat_id=message.chat.id, text='Я не понимаю вас. Пожалуйста, введите "Первое" или "Второе" в соответствии с тем, что вам больше резонирует.')
 
 def process_results(message):
-    user_id = message.chat.id
-    type = []
-
-    try:
-        bot.delete_message(chat_id=message.chat.id, message_id=user_state[user_id]['last_mssg'])
-    except telebot.apihelper.ApiTelegramException as e:
-        print(f"Error deleting last message: {e}")
+    outcome_type = []
 
     global description
     description = []
 
-    intro = user_state[user_id]['intro']
-    extra = user_state[user_id]['extra']
-    sense = user_state[user_id]['sense']
-    intuit = user_state[user_id]['intuit']
-    think = user_state[user_id]['think']
-    feel = user_state[user_id]['feel']
-    perceive = user_state[user_id]['perceive']
-    judge = user_state[user_id]['judge']
+    intro = user_state['intro']
+    extra = user_state['extra']
+    sense = user_state['sense']
+    intuit = user_state['intuit']
+    think = user_state['think']
+    feel = user_state['feel']
+    perceive = user_state['perceive']
+    judge = user_state['judge']
 
     if intro > extra:
-        type.append('i')
+        outcome_type.append('i')
     else:
-        type.append('e')
+        outcome_type.append('e')
 
     if sense > intuit:
-        type.append('s')
+        outcome_type.append('s')
     else:
-        type.append('n')
+        outcome_type.append('n')
 
     if think > feel:
-        type.append('t')
+        outcome_type.append('t')
     else:
-        type.append('f')
+        outcome_type.append('f')
 
     if perceive > judge:
-        type.append('p')
+        outcome_type.append('p')
     else:
-        type.append('j')
+        outcome_type.append('j')
 
-    letters = ''.join(type)
+    letters = ''.join(outcome_type)
 
     db_thread = threading.Thread(target=execute_query, args=(query_queue, result_queue))
     db_thread.start()
@@ -394,73 +448,79 @@ def process_results(message):
     send_markup_message(message, chat_id, letters)
 
 def send_markup_message(message, chat_id, letters):
-    user_id = message.chat.id
     bot.send_message(chat_id=chat_id,  text=f'Ваш тип личности - {letters}! \n\n {description[0]}', parse_mode='HTML', reply_markup=get_kb(index=0, name='final', letter=letters))
 
-    user_state[user_id]['stage'] = 'rate'
+    user_state['stage'] = 'rate'
+    save_user_state()
     send_rate_msg(message)
 
 def send_rate_msg(message):
     bot.send_message(chat_id=message.chat.id, text=f'Благодарю за прохождение теста, {message.from_user.first_name}! Пожалуйста, оцените работу бота и качество подачи материала.', reply_markup=get_kb(index=None, name='rate', letter=None))
 
 def send_feedback(message):
-    user_id = message.chat.id
     bot.send_message(chat_id=message.chat.id, text='И последнее: не могли бы вы оставить краткий комментарий с вашим мнением относительно работы бота? Любая точка зрения важна при сборе статистики.')
-    user_state[user_id]['stage'] = 'awaiting_feedback'
+    user_state['stage'] = 'awaiting_feedback'
+    save_user_state()
 
 #Шаг 6 - обработка отзывов от пользователя
-@bot.message_handler(func=lambda message: message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'awaiting_feedback')
+@bot.message_handler(func=lambda message: user_state.get('stage') == 'awaiting_feedback')
 def handle_feedback(message):
-    user_id = message.chat.id
     feedback_text = message.text
 
     if feedback_text:
-        user_state[user_id]['feedback'] = feedback_text
-        user_state[user_id]['stage'] = 'final_feedback'
-        bot.send_message(chat_id=message.chat.id, text='Вы уверены, что хотите оставить отзыв? Пожалуйста, напишите "да" или "нет"')
+        user_state['feedback'] = feedback_text
+        user_state['stage'] = 'final_feedback'
+        save_user_state()
+        bot.send_message(chat_id=message.chat.id, text='Вы уверены, что хотите оставить отзыв? Пожалуйста, напишите "Да" или "Нет" (с прописной буквы)')
     else:
         bot.send_message(chat_id=message.chat.id, text='Отзыв не может быть пустым.')
 
-@bot.message_handler(func=lambda message: message.chat.id in user_state and user_state[message.chat.id].get('stage') == 'final_feedback')
+@bot.message_handler(func=lambda message:  user_state.get('stage') == 'final_feedback')
 def final_feedback(message):
-    user_id = message.chat.id
     final_state = message.text
 
-    if final_state == 'да':
+    if final_state == 'Да':
         bot.send_message(chat_id=message.chat.id, text='Ваш отзыв успешно сохранен! Спасибо за мнение.')
-        user_state[user_id]['stage'] = ''
-    elif final_state == 'нет':
-        user_state[user_id].pop('feedback', None)
-        user_state[user_id]['stage'] = 'awaiting_feedback'
+        user_state['stage'] = ''
+        save_user_state()
+    elif final_state == 'Нет':
+        user_state['feedback'] = ''
+        bot.send_message(chat_id=message.chat.id, text='Вы можете переписать ваш отзыв.')
+        user_state['stage'] = 'awaiting_feedback'
+        save_user_state()
     else:
-        bot.send_message(chat_id=message.chat.id, text='Пожалуйста, отправьте "да" или "нет".')
+        bot.send_message(chat_id=message.chat.id, text='Пожалуйста, отправьте "Да" или "Нет" (с прописной буквы).')
 
 #Шаг 7 - обработка ключевых запросов от кнопок, включенных в сообщения бота
 @bot.callback_query_handler(func=lambda call: True)
 def main(call):
-    user_id = call.message.chat.id
-
+    user_id = call.message.from_user.id
     if 'answ' in call.data:
+        user_state['user_id'] = user_id
+        save_user_state()
         if 'yes' in call.data:
-          try:
-            if 'first_mssg' in user_state[user_id]:
-                bot.delete_message(chat_id=call.message.chat.id, message_id=user_state[user_id]['first_mssg'])
+            if  user_state['first_mssg'] != '':
+              try:
+                bot.delete_message(chat_id=call.message.chat.id, message_id=user_state['first_mssg'])
+              except telebot.apihelper.ApiTelegramException as e:
+                  print(f"Error deleting first message: {e}")
+              else:
                 bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=f'{about[0]}',
                 reply_markup=get_kb(index=0, name='about', letter=None))
-          except telebot.apihelper.ApiTelegramException as e:
-              print(f"Error deleting first message: {e}")
+
+
         elif 'no' in call.data:
             i_e = qs['intro_extra']
-            if 'first_mssg' in user_state[user_id]:
+            if user_state['first_mssg'] != '':
              try:
-                bot.delete_message(chat_id=call.message.chat.id, message_id=user_state[user_id]['first_mssg'])
+                bot.delete_message(chat_id=call.message.chat.id, message_id=user_state['first_mssg'])
              except telebot.apihelper.ApiTelegramException as e:
                 print(f"Error deleting first message: {e}")
             try:
-              edited = bot.edit_message_text(chat_id=call.message.chat.id, message_id=user_state[user_id]['welcome_mssg'], text='Загрузка данных...')
+              edited = bot.edit_message_text(chat_id=call.message.chat.id, message_id=user_state['welcome_mssg'], text='Загрузка данных...')
               bot.send_message(chat_id=call.message.chat.id, text=f'{i_e[0]}', reply_markup=get_kb(index=0, name='test', letter=None))
               bot.delete_message(chat_id=call.message.chat.id, message_id=edited.message_id)
             except telebot.apihelper.ApiTelegramException as e:
@@ -492,6 +552,17 @@ def main(call):
             bot.answer_callback_query(callback_query_id=call.id, text='Очень рада, что вам понравилось! В ближайшем будущем бот будет дополняться, добавится новая информация по психологии личности. Жду вас снова!^^ ')
             send_feedback(call.message)
 
+#Доп. защита данных при сбросе сервера
+def signal_handler(sig, frame):
+    print('Saving user_state and exiting')
+    save_user_state()
+    exit(0)
+
+signal.signal(signal.SIGINT, signal_handler) # Ctrl+C
+signal.signal(signal.SIGTERM, signal_handler) # Завершение процесса (например, Heroku)
+
+
 #Шаг 8 - запуск бота
 if __name__ == '__main__':
+    load_user_state()
     bot.polling(none_stop=True)
